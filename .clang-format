@@ -1,0 +1,8 @@
+BasedOnStyle: LLVM
+Language: C
+
+IndentWidth: 4
+TabWidth: 4
+
+BreakBeforeBraces: Linux
+ColumnLimit: 80
