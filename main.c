@@ -1,10 +1,13 @@
 #include <assert.h>
+#include <stdlib.h>
 
 #include "raylib.h"
 #include "raymath.h"
 
 #define MAX_PLAYER_BULLETS 3
 #define MAX_POOL_BULLETS (MAX_PLAYER_BULLETS * 2)
+#define LEFT_SHIP_TEXTURE_FILEPATH "assets/red-spaceship.png"
+#define RIGHT_SHIP_TEXTURE_FILEPATH "assets/blue-spaceship.png"
 
 typedef struct {
     int move_up;
@@ -21,6 +24,7 @@ typedef struct {
     // Determines x clamp on the middle screen
     bool left_side;
     int bullet_count;
+    Texture2D texture;
 } Ship;
 
 typedef struct {
@@ -33,14 +37,14 @@ typedef Bullet BulletPool[MAX_POOL_BULLETS];
 
 const int WINDOW_WIDTH = 960;
 const int WINDOW_HEIGHT = 540;
-const int SCREEN_WIDTH = WINDOW_WIDTH / 4;
-const int SCREEN_HEIGHT = WINDOW_HEIGHT / 4;
-const int SHIP_WIDTH = 10;
-const int SHIP_HEIGHT = 10;
-const float SHIP_VELOCITY = 1.5f;
-const int BULLET_WIDTH = 3;
+const int SCREEN_WIDTH = WINDOW_WIDTH / 2;
+const int SCREEN_HEIGHT = WINDOW_HEIGHT / 2;
+const int SHIP_WIDTH = 24;
+const int SHIP_HEIGHT = 26;
+const float SHIP_VELOCITY = 3.0f;
+const int BULLET_WIDTH = 12;
 const int BULLET_HEIGHT = 1;
-const float BULLET_VELOCITY = 4.0f;
+const float BULLET_VELOCITY = 10.0f;
 
 RenderTexture2D screen;
 
@@ -142,8 +146,21 @@ void ShipHandleShoot(Ship *ship, BulletPool bullet_pool)
 
 void ShipDraw(Ship *ship)
 {
-    DrawRectangleV(ship->position, (Vector2){SHIP_WIDTH, SHIP_HEIGHT},
-                   WHITE);
+    DrawTextureV(ship->texture, ship->position, WHITE);
+}
+
+Texture2D ShipLoadTexture(const char *filename, int rotation_degree)
+{
+    Image image = LoadImage(filename);
+    if (image.data == 0) {
+        TraceLog(LOG_ERROR, "Failed to load texture: %s", filename);
+        exit(1);
+    }
+
+    ImageRotate(&image, rotation_degree);
+    Texture2D texture = LoadTextureFromImage(image);
+    UnloadImage(image);
+    return texture;
 }
 
 int main(void)
@@ -152,22 +169,24 @@ int main(void)
     SetTargetFPS(60);
 
     Ship ship1 = {
-        {0, 0}, {0, 0}, {KEY_W, KEY_S, KEY_A, KEY_D, KEY_SPACE}, true, 0};
+        {0, 0}, {0, 0}, {KEY_W, KEY_S, KEY_A, KEY_D, KEY_SPACE},
+        true,   0,      ShipLoadTexture(LEFT_SHIP_TEXTURE_FILEPATH, 90)};
     Ship ship2 = {{SCREEN_WIDTH * 0.75f, 0},
                   {0, 0},
                   {KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_COMMA},
                   false,
-                  0};
+                  0,
+                  ShipLoadTexture(RIGHT_SHIP_TEXTURE_FILEPATH, -90)};
     BulletPool bullet_pool = {0};
     screen = LoadRenderTexture(SCREEN_WIDTH, SCREEN_HEIGHT);
 
     while (!WindowShouldClose()) {
+        BulletPoolUpdateMovement(bullet_pool);
+
         ShipHandleMovement(&ship1);
         ShipHandleShoot(&ship1, bullet_pool);
         ShipHandleMovement(&ship2);
         ShipHandleShoot(&ship2, bullet_pool);
-
-        BulletPoolUpdateMovement(bullet_pool);
 
         BeginTextureMode(screen);
         ClearBackground(BLACK);
@@ -188,5 +207,8 @@ int main(void)
         EndDrawing();
     }
 
+    UnloadTexture(ship1.texture);
+    UnloadTexture(ship2.texture);
+    UnloadRenderTexture(screen);
     return 0;
 }
