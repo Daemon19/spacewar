@@ -37,6 +37,13 @@ typedef struct {
     Ship *owner;
 } Bullet;
 
+typedef enum {
+    NONE,
+    LEFT,
+    RIGHT,
+    DRAW,
+} Winner;
+
 typedef Bullet BulletPool[MAX_POOL_BULLETS];
 
 const int WINDOW_WIDTH = 960;
@@ -56,6 +63,8 @@ const int SHIP_HEALTH_Y_OFF = 10;
 const int BULLET_WIDTH = 12;
 const int BULLET_HEIGHT = 1;
 const float BULLET_VELOCITY = 10.0f;
+
+const float WIN_FONT_SIZE = 64.0f;
 
 RenderTexture2D screen;
 
@@ -219,6 +228,30 @@ Texture2D ShipLoadTexture(const char *filename, int rotation_degree)
     return texture;
 }
 
+void DrawWinDialog(Winner winner)
+{
+    assert(winner != NONE);
+
+    const char *win_str;
+    Color text_color;
+    if (LEFT == winner) {
+        win_str = "Red Wins!";
+        text_color = RED;
+    } else if (RIGHT == winner) {
+        win_str = "Blue Wins!";
+        text_color = BLUE;
+    } else {
+        win_str = "Draw.";
+        text_color = WHITE;
+    }
+    Vector2 text_size =
+        MeasureTextEx(GetFontDefault(), win_str, WIN_FONT_SIZE, 1.0f);
+    Vector2 text_position = {SCREEN_WIDTH / 2.0f - text_size.x / 2.0f,
+                             SCREEN_HEIGHT / 2.0f - text_size.y / 2.0f};
+    DrawTextEx(GetFontDefault(), win_str, text_position, WIN_FONT_SIZE, 1.0f,
+               text_color);
+}
+
 int main(void)
 {
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Space War");
@@ -240,31 +273,49 @@ int main(void)
                   SHIP_INITIAL_HEALTH};
     BulletPool bullet_pool = {0};
     screen = LoadRenderTexture(SCREEN_WIDTH, SCREEN_HEIGHT);
+    Winner winner = NONE;
 
     while (!WindowShouldClose()) {
-        BulletPoolUpdateMovement(bullet_pool);
+        if (NONE == winner) {
+            BulletPoolUpdateMovement(bullet_pool);
 
-        ShipHandleMovement(&ship1);
-        ShipHandleShoot(&ship1, bullet_pool);
-        ShipHandleMovement(&ship2);
-        ShipHandleShoot(&ship2, bullet_pool);
+            ShipHandleMovement(&ship1);
+            ShipHandleShoot(&ship1, bullet_pool);
+            ShipHandleMovement(&ship2);
+            ShipHandleShoot(&ship2, bullet_pool);
 
-        int collision_count =
-            BulletPoolHandleCollisions(bullet_pool, &ship1, &ship2);
-        ship2.health -= collision_count;
+            int collision_count =
+                BulletPoolHandleCollisions(bullet_pool, &ship1, &ship2);
+            ship2.health = (ship2.health < collision_count)
+                               ? 0
+                               : ship2.health - collision_count;
 
-        collision_count =
-            BulletPoolHandleCollisions(bullet_pool, &ship2, &ship1);
-        ship1.health -= collision_count;
+            collision_count =
+                BulletPoolHandleCollisions(bullet_pool, &ship2, &ship1);
+            ship1.health = (ship1.health < collision_count)
+                               ? 0
+                               : ship1.health - collision_count;
+
+            if (0 == ship1.health && 0 == ship2.health) {
+                winner = DRAW;
+            } else if (0 == ship1.health) {
+                winner = RIGHT;
+            } else if (0 == ship2.health) {
+                winner = LEFT;
+            }
+        }
 
         BeginTextureMode(screen);
         ClearBackground(BLACK);
+        DrawText("Hello Bup :3", 100, 100, 24, (Color){255, 255, 255, 4});
         BulletPoolDraw(bullet_pool);
         ShipDraw(&ship1);
         ShipDraw(&ship2);
         ShipDrawHealth(&ship1);
         ShipDrawHealth(&ship2);
-        DrawText("Hello Ray", 100, 100, 24, WHITE);
+        if (NONE != winner) {
+            DrawWinDialog(winner);
+        }
         EndTextureMode();
 
         BeginDrawing();
