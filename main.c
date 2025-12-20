@@ -1,3 +1,9 @@
+// TODO: Add background music & sfx ✅
+// TODO: Add main menu
+// TODO: Add pause menu
+// TODO: Add win menu
+// TODO: Move bullets to Ship struct
+
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,6 +17,10 @@
 #define MAX_POOL_BULLETS (MAX_PLAYER_BULLETS * 2)
 #define LEFT_SHIP_TEXTURE_FILEPATH "assets/red-spaceship.png"
 #define RIGHT_SHIP_TEXTURE_FILEPATH "assets/blue-spaceship.png"
+#define SHOOT_SFX_FILEPATH "assets/shoot-sfx.wav"
+#define HIT_SFX_FILEPATH "assets/hit-sfx.wav"
+#define WIN_SFX_FILEPATH "assets/win-sfx.wav"
+#define BACKGROUND_MUSIC_FILEPATH "assets/background-music.ogg"
 
 typedef struct {
     int move_up;
@@ -185,13 +195,15 @@ void ShipHandleMovement(Ship *ship)
     ship->position.y = Clamp(ship->position.y, 0, SCREEN_HEIGHT - SHIP_HEIGHT);
 }
 
-void ShipHandleShoot(Ship *ship, BulletPool bullet_pool)
+bool ShipHandleShoot(Ship *ship, BulletPool bullet_pool)
 {
-    if (IsKeyPressed(ship->key_map.shoot) &&
-        ship->bullet_count < MAX_PLAYER_BULLETS) {
+    bool shooting = IsKeyPressed(ship->key_map.shoot) &&
+                    ship->bullet_count < MAX_PLAYER_BULLETS;
+    if (shooting) {
         BulletPoolAddBullet(bullet_pool, ship);
         ship->bullet_count++;
     }
+    return shooting;
 }
 
 void ShipDraw(Ship *ship)
@@ -254,8 +266,11 @@ void DrawWinDialog(Winner winner)
 
 int main(void)
 {
+    SetTraceLogLevel(LOG_WARNING);
+
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Space War");
     SetTargetFPS(60);
+    InitAudioDevice();
 
     Ship ship1 = {{0, 0},
                   {0, 0},
@@ -275,23 +290,41 @@ int main(void)
     screen = LoadRenderTexture(SCREEN_WIDTH, SCREEN_HEIGHT);
     Winner winner = NONE;
 
+    Sound shoot_sfx = LoadSound(SHOOT_SFX_FILEPATH);
+    Sound hit_sfx = LoadSound(HIT_SFX_FILEPATH);
+    Sound win_sfx = LoadSound(WIN_SFX_FILEPATH);
+    SetSoundVolume(win_sfx, 5.0f);
+    Music background_music = LoadMusicStream(BACKGROUND_MUSIC_FILEPATH);
+    background_music.looping = true;
+    PlayMusicStream(background_music);
+
     while (!WindowShouldClose()) {
         if (NONE == winner) {
             BulletPoolUpdateMovement(bullet_pool);
 
             ShipHandleMovement(&ship1);
-            ShipHandleShoot(&ship1, bullet_pool);
+            if (ShipHandleShoot(&ship1, bullet_pool)) {
+                PlaySound(shoot_sfx);
+            }
             ShipHandleMovement(&ship2);
-            ShipHandleShoot(&ship2, bullet_pool);
+            if (ShipHandleShoot(&ship2, bullet_pool)) {
+                PlaySound(shoot_sfx);
+            }
 
             int collision_count =
                 BulletPoolHandleCollisions(bullet_pool, &ship1, &ship2);
+            if (collision_count) {
+                PlaySound(hit_sfx);
+            }
             ship2.health = (ship2.health < collision_count)
                                ? 0
                                : ship2.health - collision_count;
 
             collision_count =
                 BulletPoolHandleCollisions(bullet_pool, &ship2, &ship1);
+            if (collision_count) {
+                PlaySound(hit_sfx);
+            }
             ship1.health = (ship1.health < collision_count)
                                ? 0
                                : ship1.health - collision_count;
@@ -303,6 +336,12 @@ int main(void)
             } else if (0 == ship2.health) {
                 winner = LEFT;
             }
+
+            if (NONE != winner) {
+                PlaySound(win_sfx);
+            }
+
+            UpdateMusicStream(background_music);
         }
 
         BeginTextureMode(screen);
@@ -332,5 +371,9 @@ int main(void)
     UnloadTexture(ship1.texture);
     UnloadTexture(ship2.texture);
     UnloadRenderTexture(screen);
+    UnloadSound(shoot_sfx);
+    UnloadSound(hit_sfx);
+    UnloadSound(win_sfx);
+    UnloadMusicStream(background_music);
     return 0;
 }
