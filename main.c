@@ -170,20 +170,23 @@ int BulletPoolHandleCollisions(BulletPool bullet_pool, const Ship *shooter,
 void ShipHandleMovement(Ship *ship)
 {
     if (IsKeyDown(ship->key_map.move_up)) {
-        ship->velocity.y = -SHIP_VELOCITY;
+        ship->velocity.y = -1;
     } else if (IsKeyDown(ship->key_map.move_down)) {
-        ship->velocity.y = SHIP_VELOCITY;
+        ship->velocity.y = 1;
     } else {
         ship->velocity.y = 0;
     }
 
     if (IsKeyDown(ship->key_map.move_left)) {
-        ship->velocity.x = -SHIP_VELOCITY;
+        ship->velocity.x = -1;
     } else if (IsKeyDown(ship->key_map.move_right)) {
-        ship->velocity.x = SHIP_VELOCITY;
+        ship->velocity.x = 1;
     } else {
         ship->velocity.x = 0;
     }
+
+    ship->velocity = Vector2Normalize(ship->velocity);
+    ship->velocity = Vector2Scale(ship->velocity, SHIP_VELOCITY);
 
     ship->position.x += ship->velocity.x;
     ship->position.y += ship->velocity.y;
