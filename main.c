@@ -69,6 +69,12 @@ typedef struct {
     Music background_music;
 } Game;
 
+typedef struct GameState {
+    void (*Setup)(Game *game);
+    struct GameState *(*Update)(Game *game);
+    void (*Draw)(const Game *game);
+} GameState;
+
 const int WINDOW_WIDTH = 960;
 const int WINDOW_HEIGHT = 540;
 const int SCREEN_WIDTH = WINDOW_WIDTH / 2;
@@ -90,6 +96,8 @@ const float BULLET_VELOCITY = 10.0f;
 const float WIN_FONT_SIZE = 64.0f;
 
 RenderTexture2D screen;
+GameState playing_state;
+GameState win_state;
 
 Rectangle ShipGetHitbox(const Ship *ship)
 {
@@ -145,10 +153,10 @@ void BulletPoolUpdateMovement(BulletPool bullet_pool)
     }
 }
 
-void BulletPoolDraw(BulletPool bullet_pool)
+void BulletPoolDraw(const BulletPool bullet_pool)
 {
     for (int i = 0; i < MAX_POOL_BULLETS; i++) {
-        Bullet *bullet = &bullet_pool[i];
+        const Bullet *bullet = &bullet_pool[i];
         if (!bullet->active) {
             continue;
         }
@@ -222,7 +230,7 @@ bool ShipHandleShoot(Ship *ship, BulletPool bullet_pool)
     return shooting;
 }
 
-void ShipDraw(Ship *ship)
+void ShipDraw(const Ship *ship)
 {
     DrawTextureV(ship->texture, ship->position, WHITE);
 
@@ -304,7 +312,9 @@ void GameInit(Game *game)
     game->shoot_sfx = LoadSound(SHOOT_SFX_FILEPATH);
     game->hit_sfx = LoadSound(HIT_SFX_FILEPATH);
     game->win_sfx = LoadSound(WIN_SFX_FILEPATH);
+    SetSoundVolume(game->win_sfx, 5.0f);
     game->background_music = LoadMusicStream(BACKGROUND_MUSIC_FILEPATH);
+    game->background_music.looping = true;
 }
 
 void GameDeinit(Game *game)
@@ -315,6 +325,94 @@ void GameDeinit(Game *game)
     UnloadSound(game->hit_sfx);
     UnloadSound(game->win_sfx);
     UnloadMusicStream(game->background_music);
+}
+
+void PlayingStateSetup(Game *game) { PlayMusicStream(game->background_music); }
+
+void PlayingStateDraw(const Game *game)
+{
+    ClearBackground(BLACK);
+    DrawText("Hello Bup :3", 100, 100, 24, (Color){255, 255, 255, 4});
+    BulletPoolDraw(game->bullet_pool);
+    ShipDraw(&game->ship1);
+    ShipDraw(&game->ship2);
+    ShipDrawHealth(&game->ship1);
+    ShipDrawHealth(&game->ship2);
+    if (NONE != game->winner) {
+        DrawWinDialog(game->winner);
+    }
+}
+
+GameState *PlayingStateUpdate(Game *game)
+{
+    // Unpacking Game struct
+    Ship *ship1 = &game->ship1;
+    Ship *ship2 = &game->ship2;
+    BulletPool *bullet_pool = &game->bullet_pool;
+    Winner *winner = &game->winner;
+    Sound *shoot_sfx = &game->shoot_sfx;
+    Sound *hit_sfx = &game->hit_sfx;
+    Music *background_music = &game->background_music;
+
+    if (WindowShouldClose()) {
+        return NULL;
+    }
+
+    BulletPoolUpdateMovement(*bullet_pool);
+
+    ShipHandleMovement(ship1);
+    if (ShipHandleShoot(ship1, *bullet_pool)) {
+        PlaySound(*shoot_sfx);
+    }
+    ShipHandleMovement(ship2);
+    if (ShipHandleShoot(ship2, *bullet_pool)) {
+        PlaySound(*shoot_sfx);
+    }
+
+    int collision_count =
+        BulletPoolHandleCollisions(*bullet_pool, ship1, ship2);
+    if (collision_count) {
+        PlaySound(*hit_sfx);
+    }
+    ship2->health =
+        (ship2->health < collision_count) ? 0 : ship2->health - collision_count;
+
+    collision_count = BulletPoolHandleCollisions(*bullet_pool, ship2, ship1);
+    if (collision_count) {
+        PlaySound(*hit_sfx);
+    }
+    ship1->health =
+        (ship1->health < collision_count) ? 0 : ship1->health - collision_count;
+
+    if (0 == ship1->health && 0 == ship2->health) {
+        *winner = DRAW;
+    } else if (0 == ship1->health) {
+        *winner = RIGHT;
+    } else if (0 == ship2->health) {
+        *winner = LEFT;
+    }
+
+    if (NONE != *winner) {
+        return &win_state;
+    }
+
+    UpdateMusicStream(*background_music);
+
+    return &playing_state;
+}
+
+GameState *WinStateUpdate(Game *game)
+{
+    if (WindowShouldClose()) {
+        return NULL;
+    }
+    return &win_state;
+}
+
+void WinStateDraw(const Game *game)
+{
+    PlayingStateDraw(game);
+    DrawWinDialog(game->winner);
 }
 
 int main(void)
@@ -329,77 +427,18 @@ int main(void)
     Game game = {0};
     GameInit(&game);
 
-    SetSoundVolume(game.win_sfx, 5.0f);
-    game.background_music.looping = true;
-    PlayMusicStream(game.background_music);
+    playing_state = (GameState){.Setup = &PlayingStateSetup,
+                                .Update = &PlayingStateUpdate,
+                                .Draw = &PlayingStateDraw};
+    win_state = (GameState){
+        .Setup = NULL, .Update = &WinStateUpdate, .Draw = &WinStateDraw};
 
-    // Unpacking Game struct
-    Ship *ship1 = &game.ship1;
-    Ship *ship2 = &game.ship2;
-    BulletPool *bullet_pool = &game.bullet_pool;
-    Winner *winner = &game.winner;
-    Sound *shoot_sfx = &game.shoot_sfx;
-    Sound *hit_sfx = &game.hit_sfx;
-    Sound *win_sfx = &game.win_sfx;
-    Music *background_music = &game.background_music;
+    GameState *current_state = &playing_state;
+    current_state->Setup(&game);
 
-    while (!WindowShouldClose()) {
-        if (NONE == *winner) {
-            BulletPoolUpdateMovement(*bullet_pool);
-
-            ShipHandleMovement(ship1);
-            if (ShipHandleShoot(ship1, *bullet_pool)) {
-                PlaySound(*shoot_sfx);
-            }
-            ShipHandleMovement(ship2);
-            if (ShipHandleShoot(ship2, *bullet_pool)) {
-                PlaySound(*shoot_sfx);
-            }
-
-            int collision_count =
-                BulletPoolHandleCollisions(*bullet_pool, ship1, ship2);
-            if (collision_count) {
-                PlaySound(*hit_sfx);
-            }
-            ship2->health = (ship2->health < collision_count)
-                                ? 0
-                                : ship2->health - collision_count;
-
-            collision_count =
-                BulletPoolHandleCollisions(*bullet_pool, ship2, ship1);
-            if (collision_count) {
-                PlaySound(*hit_sfx);
-            }
-            ship1->health = (ship1->health < collision_count)
-                                ? 0
-                                : ship1->health - collision_count;
-
-            if (0 == ship1->health && 0 == ship2->health) {
-                *winner = DRAW;
-            } else if (0 == ship1->health) {
-                *winner = RIGHT;
-            } else if (0 == ship2->health) {
-                *winner = LEFT;
-            }
-
-            if (NONE != *winner) {
-                PlaySound(*win_sfx);
-            }
-
-            UpdateMusicStream(*background_music);
-        }
-
+    while (NULL != current_state) {
         BeginTextureMode(screen);
-        ClearBackground(BLACK);
-        DrawText("Hello Bup :3", 100, 100, 24, (Color){255, 255, 255, 4});
-        BulletPoolDraw(*bullet_pool);
-        ShipDraw(ship1);
-        ShipDraw(ship2);
-        ShipDrawHealth(ship1);
-        ShipDrawHealth(ship2);
-        if (NONE != *winner) {
-            DrawWinDialog(*winner);
-        }
+        current_state->Draw(&game);
         EndTextureMode();
 
         BeginDrawing();
@@ -411,6 +450,8 @@ int main(void)
             (Rectangle){0, 0, (float)WINDOW_WIDTH, (float)WINDOW_HEIGHT},
             (Vector2){0, 0}, 0.0f, WHITE);
         EndDrawing();
+
+        current_state = current_state->Update(&game);
     }
 
     GameDeinit(&game);

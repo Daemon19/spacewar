@@ -6,3 +6,4 @@ CompileFlags:
     - -Wall
     - -Wextra
     - -Wpedantic
+    - -Wno-unused-parameter
