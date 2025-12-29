@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "raylib.h"
 #include "raymath.h"
@@ -55,6 +56,18 @@ typedef enum {
 } Winner;
 
 typedef Bullet BulletPool[MAX_POOL_BULLETS];
+
+typedef struct {
+    Ship ship1;
+    Ship ship2;
+    BulletPool bullet_pool;
+    Winner winner;
+
+    Sound shoot_sfx;
+    Sound hit_sfx;
+    Sound win_sfx;
+    Music background_music;
+} Game;
 
 const int WINDOW_WIDTH = 960;
 const int WINDOW_HEIGHT = 540;
@@ -267,6 +280,43 @@ void DrawWinDialog(Winner winner)
                text_color);
 }
 
+void GameInit(Game *game)
+{
+    game->ship1 =
+        (Ship){.position = {0, 0},
+               .velocity = {0, 0},
+               .key_map = {KEY_W, KEY_S, KEY_A, KEY_D, KEY_SPACE},
+               .left_side = true,
+               .bullet_count = 0,
+               .texture = ShipLoadTexture(LEFT_SHIP_TEXTURE_FILEPATH, 90),
+               .health = SHIP_INITIAL_HEALTH};
+    game->ship2 =
+        (Ship){.position = {SCREEN_WIDTH * 0.75f, 0},
+               .velocity = {0, 0},
+               .key_map = {KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_COMMA},
+               .left_side = false,
+               .bullet_count = 0,
+               .texture = ShipLoadTexture(RIGHT_SHIP_TEXTURE_FILEPATH, -90),
+               .health = SHIP_INITIAL_HEALTH};
+    size_t bullet_pool_bytes = MAX_POOL_BULLETS * sizeof(game->bullet_pool[0]);
+    memset(game->bullet_pool, 0, bullet_pool_bytes);
+    game->winner = NONE;
+    game->shoot_sfx = LoadSound(SHOOT_SFX_FILEPATH);
+    game->hit_sfx = LoadSound(HIT_SFX_FILEPATH);
+    game->win_sfx = LoadSound(WIN_SFX_FILEPATH);
+    game->background_music = LoadMusicStream(BACKGROUND_MUSIC_FILEPATH);
+}
+
+void GameDeinit(Game *game)
+{
+    UnloadTexture(game->ship1.texture);
+    UnloadTexture(game->ship2.texture);
+    UnloadSound(game->shoot_sfx);
+    UnloadSound(game->hit_sfx);
+    UnloadSound(game->win_sfx);
+    UnloadMusicStream(game->background_music);
+}
+
 int main(void)
 {
     SetTraceLogLevel(LOG_WARNING);
@@ -275,88 +325,80 @@ int main(void)
     SetTargetFPS(60);
     InitAudioDevice();
 
-    Ship ship1 = {{0, 0},
-                  {0, 0},
-                  {KEY_W, KEY_S, KEY_A, KEY_D, KEY_SPACE},
-                  true,
-                  0,
-                  ShipLoadTexture(LEFT_SHIP_TEXTURE_FILEPATH, 90),
-                  SHIP_INITIAL_HEALTH};
-    Ship ship2 = {{SCREEN_WIDTH * 0.75f, 0},
-                  {0, 0},
-                  {KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_COMMA},
-                  false,
-                  0,
-                  ShipLoadTexture(RIGHT_SHIP_TEXTURE_FILEPATH, -90),
-                  SHIP_INITIAL_HEALTH};
-    BulletPool bullet_pool = {0};
     screen = LoadRenderTexture(SCREEN_WIDTH, SCREEN_HEIGHT);
-    Winner winner = NONE;
+    Game game = {0};
+    GameInit(&game);
 
-    Sound shoot_sfx = LoadSound(SHOOT_SFX_FILEPATH);
-    Sound hit_sfx = LoadSound(HIT_SFX_FILEPATH);
-    Sound win_sfx = LoadSound(WIN_SFX_FILEPATH);
-    SetSoundVolume(win_sfx, 5.0f);
-    Music background_music = LoadMusicStream(BACKGROUND_MUSIC_FILEPATH);
-    background_music.looping = true;
-    PlayMusicStream(background_music);
+    SetSoundVolume(game.win_sfx, 5.0f);
+    game.background_music.looping = true;
+    PlayMusicStream(game.background_music);
+
+    // Unpacking Game struct
+    Ship *ship1 = &game.ship1;
+    Ship *ship2 = &game.ship2;
+    BulletPool *bullet_pool = &game.bullet_pool;
+    Winner *winner = &game.winner;
+    Sound *shoot_sfx = &game.shoot_sfx;
+    Sound *hit_sfx = &game.hit_sfx;
+    Sound *win_sfx = &game.win_sfx;
+    Music *background_music = &game.background_music;
 
     while (!WindowShouldClose()) {
-        if (NONE == winner) {
-            BulletPoolUpdateMovement(bullet_pool);
+        if (NONE == *winner) {
+            BulletPoolUpdateMovement(*bullet_pool);
 
-            ShipHandleMovement(&ship1);
-            if (ShipHandleShoot(&ship1, bullet_pool)) {
-                PlaySound(shoot_sfx);
+            ShipHandleMovement(ship1);
+            if (ShipHandleShoot(ship1, *bullet_pool)) {
+                PlaySound(*shoot_sfx);
             }
-            ShipHandleMovement(&ship2);
-            if (ShipHandleShoot(&ship2, bullet_pool)) {
-                PlaySound(shoot_sfx);
+            ShipHandleMovement(ship2);
+            if (ShipHandleShoot(ship2, *bullet_pool)) {
+                PlaySound(*shoot_sfx);
             }
 
             int collision_count =
-                BulletPoolHandleCollisions(bullet_pool, &ship1, &ship2);
+                BulletPoolHandleCollisions(*bullet_pool, ship1, ship2);
             if (collision_count) {
-                PlaySound(hit_sfx);
+                PlaySound(*hit_sfx);
             }
-            ship2.health = (ship2.health < collision_count)
-                               ? 0
-                               : ship2.health - collision_count;
+            ship2->health = (ship2->health < collision_count)
+                                ? 0
+                                : ship2->health - collision_count;
 
             collision_count =
-                BulletPoolHandleCollisions(bullet_pool, &ship2, &ship1);
+                BulletPoolHandleCollisions(*bullet_pool, ship2, ship1);
             if (collision_count) {
-                PlaySound(hit_sfx);
+                PlaySound(*hit_sfx);
             }
-            ship1.health = (ship1.health < collision_count)
-                               ? 0
-                               : ship1.health - collision_count;
+            ship1->health = (ship1->health < collision_count)
+                                ? 0
+                                : ship1->health - collision_count;
 
-            if (0 == ship1.health && 0 == ship2.health) {
-                winner = DRAW;
-            } else if (0 == ship1.health) {
-                winner = RIGHT;
-            } else if (0 == ship2.health) {
-                winner = LEFT;
-            }
-
-            if (NONE != winner) {
-                PlaySound(win_sfx);
+            if (0 == ship1->health && 0 == ship2->health) {
+                *winner = DRAW;
+            } else if (0 == ship1->health) {
+                *winner = RIGHT;
+            } else if (0 == ship2->health) {
+                *winner = LEFT;
             }
 
-            UpdateMusicStream(background_music);
+            if (NONE != *winner) {
+                PlaySound(*win_sfx);
+            }
+
+            UpdateMusicStream(*background_music);
         }
 
         BeginTextureMode(screen);
         ClearBackground(BLACK);
         DrawText("Hello Bup :3", 100, 100, 24, (Color){255, 255, 255, 4});
-        BulletPoolDraw(bullet_pool);
-        ShipDraw(&ship1);
-        ShipDraw(&ship2);
-        ShipDrawHealth(&ship1);
-        ShipDrawHealth(&ship2);
-        if (NONE != winner) {
-            DrawWinDialog(winner);
+        BulletPoolDraw(*bullet_pool);
+        ShipDraw(ship1);
+        ShipDraw(ship2);
+        ShipDrawHealth(ship1);
+        ShipDrawHealth(ship2);
+        if (NONE != *winner) {
+            DrawWinDialog(*winner);
         }
         EndTextureMode();
 
@@ -371,12 +413,7 @@ int main(void)
         EndDrawing();
     }
 
-    UnloadTexture(ship1.texture);
-    UnloadTexture(ship2.texture);
+    GameDeinit(&game);
     UnloadRenderTexture(screen);
-    UnloadSound(shoot_sfx);
-    UnloadSound(hit_sfx);
-    UnloadSound(win_sfx);
-    UnloadMusicStream(background_music);
     return 0;
 }
