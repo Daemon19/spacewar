@@ -1,8 +1,8 @@
 // TODO: Add background music & sfx ✅
-// TODO: Add main menu
+// TODO: Add main menu ✅
 // TODO: Add pause menu
-// TODO: Add win menu
-// TODO: Move bullets to Ship struct
+// TODO: Add win menu ✅
+// TODO: Move bullets to Ship struct?
 
 #include <assert.h>
 #include <stdio.h>
@@ -35,7 +35,6 @@ typedef struct {
     Vector2 position;
     Vector2 velocity;
     ShipKeyMap key_map;
-    // Determines x clamp on the middle screen
     bool left_side;
     int bullet_count;
     Texture2D texture;
@@ -58,6 +57,20 @@ typedef enum {
 typedef Bullet BulletPool[MAX_POOL_BULLETS];
 
 typedef struct {
+    Rectangle play_button;
+} MainMenuGui;
+
+typedef struct {
+    Rectangle play_again_button;
+    Rectangle exit_button;
+} WinGui;
+
+typedef struct {
+    MainMenuGui main_menu_gui;
+    WinGui win_gui;
+} Gui;
+
+typedef struct {
     Ship ship1;
     Ship ship2;
     BulletPool bullet_pool;
@@ -67,18 +80,22 @@ typedef struct {
     Sound hit_sfx;
     Sound win_sfx;
     Music background_music;
+
+    Gui gui;
 } Game;
 
 typedef struct GameState {
-    void (*Setup)(Game *game);
+    void (*Init)(Game *game);
     struct GameState *(*Update)(Game *game);
     void (*Draw)(const Game *game);
 } GameState;
 
 const int WINDOW_WIDTH = 960;
 const int WINDOW_HEIGHT = 540;
-const int SCREEN_WIDTH = WINDOW_WIDTH / 2;
-const int SCREEN_HEIGHT = WINDOW_HEIGHT / 2;
+const int SCREEN_DIVIDER = 2;
+const int SCREEN_WIDTH = WINDOW_WIDTH / SCREEN_DIVIDER;
+const int SCREEN_HEIGHT = WINDOW_HEIGHT / SCREEN_DIVIDER;
+const Vector2 SCREEN_HALF = {SCREEN_WIDTH / 2.0f, SCREEN_HEIGHT / 2.0f};
 
 const int SHIP_WIDTH = 24;
 const int SHIP_HEIGHT = 26;
@@ -94,10 +111,46 @@ const int BULLET_HEIGHT = 1;
 const float BULLET_VELOCITY = 10.0f;
 
 const float WIN_FONT_SIZE = 64.0f;
+const float DEFAULT_LETTER_SPACING = 1.0f;
 
 RenderTexture2D screen;
+GameState main_menu_state;
 GameState playing_state;
 GameState win_state;
+
+Vector2 GetMousePositionOnScreen(void)
+{
+    return Vector2Scale(GetMousePosition(), 1.0f / SCREEN_DIVIDER);
+}
+
+Rectangle CreateRectangleFromCenter(float centerx, float centery, float width,
+                                    float height)
+{
+    return (Rectangle){centerx - width / 2.0f, centery - height / 2.0f, width,
+                       height};
+}
+
+void DrawTextCenter(const char *string, Vector2 center, float font_size,
+                    float letter_spacing, Color color)
+{
+    Vector2 text_size =
+        MeasureTextEx(GetFontDefault(), string, font_size, letter_spacing);
+    Vector2 topleft = Vector2Subtract(center, Vector2Scale(text_size, 0.5f));
+    DrawTextEx(GetFontDefault(), string, topleft, font_size, letter_spacing,
+               color);
+}
+
+bool RectangleCheckPressed(Rectangle rectangle)
+{
+    return IsMouseButtonPressed(MOUSE_LEFT_BUTTON) &&
+           CheckCollisionPointRec(GetMousePositionOnScreen(), rectangle);
+}
+
+Vector2 RectangleGetCenter(Rectangle rectangle)
+{
+    return (Vector2){rectangle.x + rectangle.width / 2.0f,
+                     rectangle.y + rectangle.height / 2.0f};
+}
 
 Rectangle ShipGetHitbox(const Ship *ship)
 {
@@ -280,12 +333,22 @@ void DrawWinDialog(Winner winner)
         win_str = "Draw.";
         text_color = WHITE;
     }
-    Vector2 text_size =
-        MeasureTextEx(GetFontDefault(), win_str, WIN_FONT_SIZE, 1.0f);
-    Vector2 text_position = {SCREEN_WIDTH / 2.0f - text_size.x / 2.0f,
-                             SCREEN_HEIGHT / 2.0f - text_size.y / 2.0f};
-    DrawTextEx(GetFontDefault(), win_str, text_position, WIN_FONT_SIZE, 1.0f,
-               text_color);
+    const float y_offset = -50.0f;
+    DrawTextCenter(
+        win_str,
+        (Vector2){SCREEN_WIDTH / 2.0f, SCREEN_HEIGHT / 2.0f + y_offset},
+        WIN_FONT_SIZE, DEFAULT_LETTER_SPACING, text_color);
+}
+
+void DrawWinButtons(const Gui *gui)
+{
+    DrawRectangleRec(gui->win_gui.play_again_button, WHITE);
+    DrawTextCenter("PLAY AGAIN",
+                   RectangleGetCenter(gui->win_gui.play_again_button), 24.0f,
+                   DEFAULT_LETTER_SPACING, RED);
+    DrawRectangleRec(gui->win_gui.exit_button, WHITE);
+    DrawTextCenter("EXIT", RectangleGetCenter(gui->win_gui.exit_button), 24.0f,
+                   DEFAULT_LETTER_SPACING, RED);
 }
 
 void GameInit(Game *game)
@@ -315,6 +378,14 @@ void GameInit(Game *game)
     SetSoundVolume(game->win_sfx, 5.0f);
     game->background_music = LoadMusicStream(BACKGROUND_MUSIC_FILEPATH);
     game->background_music.looping = true;
+    game->gui = (Gui){
+        .main_menu_gui = {.play_button = CreateRectangleFromCenter(
+                              SCREEN_HALF.x, SCREEN_HALF.y + 20.0f, 150.0f,
+                              30.0f)},
+        .win_gui = {.play_again_button = CreateRectangleFromCenter(
+                        SCREEN_HALF.x, SCREEN_HALF.y + 20.0f, 150.0f, 30.0f),
+                    .exit_button = CreateRectangleFromCenter(
+                        SCREEN_HALF.x, SCREEN_HALF.y + 70.0f, 100.0f, 30.0f)}};
 }
 
 void GameDeinit(Game *game)
@@ -327,7 +398,56 @@ void GameDeinit(Game *game)
     UnloadMusicStream(game->background_music);
 }
 
-void PlayingStateSetup(Game *game) { PlayMusicStream(game->background_music); }
+void MainMenuStateInit(Game *game) {}
+
+GameState *MainMenuStateUpdate(Game *game)
+{
+    if (WindowShouldClose()) {
+        return NULL;
+    }
+    if (RectangleCheckPressed(game->gui.main_menu_gui.play_button)) {
+        return &playing_state;
+    }
+    return &main_menu_state;
+}
+
+void MainMenuStateDraw(const Game *game)
+{
+    ClearBackground(BLACK);
+    DrawTextCenter("SPACEWAR", (Vector2){SCREEN_HALF.x, SCREEN_HALF.y - 50.0f},
+                   48.0f, 5.0f, WHITE);
+    DrawRectangleRec(game->gui.main_menu_gui.play_button, WHITE);
+    DrawTextCenter("PLAY",
+                   RectangleGetCenter(game->gui.main_menu_gui.play_button),
+                   24.0f, DEFAULT_LETTER_SPACING, RED);
+}
+
+void PlayingStateInit(Game *game)
+{
+    SeekMusicStream(game->background_music, 0.0f);
+    PlayMusicStream(game->background_music);
+    game->ship1 =
+        (Ship){.position = {SCREEN_HALF.x * 0.5f - SHIP_WIDTH / 2.0f,
+                            SCREEN_HALF.y * 0.5f - SHIP_HEIGHT / 2.0f},
+               .velocity = {0, 0},
+               .key_map = {KEY_W, KEY_S, KEY_A, KEY_D, KEY_SPACE},
+               .left_side = true,
+               .bullet_count = 0,
+               .texture = ShipLoadTexture(LEFT_SHIP_TEXTURE_FILEPATH, 90),
+               .health = SHIP_INITIAL_HEALTH};
+    game->ship2 =
+        (Ship){.position = {SCREEN_HALF.x * 1.5f - SHIP_WIDTH / 2.0f,
+                            SCREEN_HALF.y * 1.5f - SHIP_HEIGHT / 2.0f},
+               .velocity = {0, 0},
+               .key_map = {KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_COMMA},
+               .left_side = false,
+               .bullet_count = 0,
+               .texture = ShipLoadTexture(RIGHT_SHIP_TEXTURE_FILEPATH, -90),
+               .health = SHIP_INITIAL_HEALTH};
+    size_t bullet_pool_bytes = MAX_POOL_BULLETS * sizeof(game->bullet_pool[0]);
+    memset(game->bullet_pool, 0, bullet_pool_bytes);
+    game->winner = NONE;
+}
 
 void PlayingStateDraw(const Game *game)
 {
@@ -401,9 +521,17 @@ GameState *PlayingStateUpdate(Game *game)
     return &playing_state;
 }
 
+void WinStateInit(Game *game) {}
+
 GameState *WinStateUpdate(Game *game)
 {
     if (WindowShouldClose()) {
+        return NULL;
+    }
+    if (RectangleCheckPressed(game->gui.win_gui.play_again_button)) {
+        return &playing_state;
+    }
+    if (RectangleCheckPressed(game->gui.win_gui.exit_button)) {
         return NULL;
     }
     return &win_state;
@@ -413,6 +541,32 @@ void WinStateDraw(const Game *game)
 {
     PlayingStateDraw(game);
     DrawWinDialog(game->winner);
+    DrawWinButtons(&game->gui);
+}
+
+void GameStatesInit(void)
+{
+    main_menu_state = (GameState){.Init = &MainMenuStateInit,
+                                  .Update = &MainMenuStateUpdate,
+                                  .Draw = &MainMenuStateDraw};
+    playing_state = (GameState){.Init = &PlayingStateInit,
+                                .Update = &PlayingStateUpdate,
+                                .Draw = &PlayingStateDraw};
+    win_state = (GameState){.Init = &WinStateInit,
+                            .Update = &WinStateUpdate,
+                            .Draw = &WinStateDraw};
+}
+
+void DrawScreenToWindow(void)
+{
+    BeginDrawing();
+    ClearBackground(RAYWHITE);
+    DrawTexturePro(screen.texture,
+                   (Rectangle){0, 0, (float)screen.texture.width,
+                               (float)-screen.texture.height},
+                   (Rectangle){0, 0, (float)WINDOW_WIDTH, (float)WINDOW_HEIGHT},
+                   (Vector2){0, 0}, 0.0f, WHITE);
+    EndDrawing();
 }
 
 int main(void)
@@ -427,30 +581,22 @@ int main(void)
     Game game = {0};
     GameInit(&game);
 
-    playing_state = (GameState){.Setup = &PlayingStateSetup,
-                                .Update = &PlayingStateUpdate,
-                                .Draw = &PlayingStateDraw};
-    win_state = (GameState){
-        .Setup = NULL, .Update = &WinStateUpdate, .Draw = &WinStateDraw};
-
-    GameState *current_state = &playing_state;
-    current_state->Setup(&game);
+    GameStatesInit();
+    GameState *current_state = &main_menu_state;
+    GameState *previous_state = NULL;
 
     while (NULL != current_state) {
+        // Run game state initialization function on state change
+        if (previous_state != current_state) {
+            current_state->Init(&game);
+            previous_state = current_state;
+        }
+
         BeginTextureMode(screen);
         current_state->Draw(&game);
         EndTextureMode();
 
-        BeginDrawing();
-        ClearBackground(RAYWHITE);
-        DrawTexturePro(
-            screen.texture,
-            (Rectangle){0, 0, (float)screen.texture.width,
-                        (float)-screen.texture.height},
-            (Rectangle){0, 0, (float)WINDOW_WIDTH, (float)WINDOW_HEIGHT},
-            (Vector2){0, 0}, 0.0f, WHITE);
-        EndDrawing();
-
+        DrawScreenToWindow();
         current_state = current_state->Update(&game);
     }
 
