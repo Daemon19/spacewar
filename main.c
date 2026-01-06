@@ -503,8 +503,13 @@ void GameLoadSounds(Game *game)
     game->shoot_sfx = LoadSound(SHOOT_SFX_FILEPATH);
     game->hit_sfx = LoadSound(HIT_SFX_FILEPATH);
     game->win_sfx = LoadSound(WIN_SFX_FILEPATH);
-    SetSoundVolume(game->win_sfx, 5.0f);
     game->background_music = LoadMusicStream(BACKGROUND_MUSIC_FILEPATH);
+
+    SetSoundVolume(game->shoot_sfx, 0.5f);
+    SetSoundVolume(game->hit_sfx, 0.5f);
+    SetSoundVolume(game->win_sfx, 0.3f);
+    SetMusicVolume(game->background_music, 0.3f);
+
     game->background_music.looping = true;
 }
 
@@ -703,6 +708,8 @@ void PauseStateDraw(const Game *game)
     DrawTextButton(&game->gui.pause_gui.main_menu_button);
 }
 
+void WinStateInit(Game *game) { PlaySound(game->win_sfx); }
+
 GameState *WinStateUpdate(Game *game)
 {
     if (WindowShouldClose()) {
@@ -741,7 +748,7 @@ void GameStatesInit(void)
                               .Update = &PauseStateUpdate,
                               .Draw = &PauseStateDraw};
 
-    win_state = (GameState){.Init = &EmptyStateInit,
+    win_state = (GameState){.Init = &WinStateInit,
                             .Update = &WinStateUpdate,
                             .Draw = &WinStateDraw};
 }
