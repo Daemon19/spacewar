@@ -1,6 +1,6 @@
 // TODO: Add background music & sfx ✅
 // TODO: Add main menu ✅
-// TODO: Add pause menu
+// TODO: Add pause menu ✅
 // TODO: Add win menu ✅
 // TODO: Move bullets to Ship struct?
 
@@ -11,6 +11,7 @@
 
 #include "raylib.h"
 #include "raymath.h"
+#include "rlgl.h"
 
 // #define DRAW_HITBOX
 
@@ -22,6 +23,7 @@
 #define HIT_SFX_FILEPATH "assets/hit-sfx.wav"
 #define WIN_SFX_FILEPATH "assets/win-sfx.wav"
 #define BACKGROUND_MUSIC_FILEPATH "assets/background-music.ogg"
+#define PAUSE_ICON_FILEPATH "assets/pause-icon.png"
 
 typedef struct {
     int move_up;
@@ -57,8 +59,41 @@ typedef enum {
 typedef Bullet BulletPool[MAX_POOL_BULLETS];
 
 typedef struct {
+    Vector2 center;
+    float font_size;
+    Vector2 padding;
+    Color background_color;
+    Color text_color;
+    const char *text;
+} TextButton;
+
+typedef struct {
+    Vector2 center;
+    Vector2 padding;
+    float scale;
+    Texture2D texture;
+} TextureButton;
+
+typedef struct {
+    enum ContentType { TEXT, TEXTURE } content_type;
+    union Content {
+        TextButton text;
+        TextureButton texture;
+    } content;
+} Button;
+
+typedef struct {
     Rectangle play_button;
 } MainMenuGui;
+
+typedef struct {
+    Button pause_button;
+} PlayingGui;
+
+typedef struct {
+    TextButton resume_button;
+    TextButton main_menu_button;
+} PauseGui;
 
 typedef struct {
     Rectangle play_again_button;
@@ -67,6 +102,8 @@ typedef struct {
 
 typedef struct {
     MainMenuGui main_menu_gui;
+    PlayingGui playing_gui;
+    PauseGui pause_gui;
     WinGui win_gui;
 } Gui;
 
@@ -112,10 +149,12 @@ const float BULLET_VELOCITY = 10.0f;
 
 const float WIN_FONT_SIZE = 64.0f;
 const float DEFAULT_LETTER_SPACING = 1.0f;
+const Color PAUSE_DIM_COLOR = (Color){0, 0, 0, 170};
 
 RenderTexture2D screen;
 GameState main_menu_state;
 GameState playing_state;
+GameState pause_state;
 GameState win_state;
 
 Vector2 GetMousePositionOnScreen(void)
@@ -140,6 +179,82 @@ void DrawTextCenter(const char *string, Vector2 center, float font_size,
                color);
 }
 
+Rectangle GetTextButtonRectangle(const TextButton *button)
+{
+    Vector2 size = MeasureTextEx(GetFontDefault(), button->text,
+                                 button->font_size, DEFAULT_LETTER_SPACING);
+    // Times 2 for 2 direction padding
+    Vector2 extra = Vector2Scale(button->padding, 2.0f);
+    size = Vector2Add(size, extra);
+    Rectangle rectangle = CreateRectangleFromCenter(
+        button->center.x, button->center.y, size.x, size.y);
+    return rectangle;
+}
+
+Rectangle GetTextureButtonRectangle(const TextureButton *button)
+{
+    Vector2 size = {button->texture.width, button->texture.height};
+    // Times 2 for 2 direction padding
+    Vector2 extra = Vector2Scale(button->padding, 2.0f);
+    size = Vector2Add(size, extra);
+    Rectangle rectangle = CreateRectangleFromCenter(
+        button->center.x, button->center.y, size.x, size.y);
+    return rectangle;
+}
+
+Rectangle GetButtonRectangle(const Button *button)
+{
+    Rectangle rectangle = {0};
+    switch (button->content_type) {
+    case TEXT:
+        rectangle = GetTextButtonRectangle(&button->content.text);
+        break;
+    case TEXTURE:
+        rectangle = GetTextureButtonRectangle(&button->content.texture);
+        break;
+    default:
+        assert(!"Invalid button ContentType");
+        break;
+    }
+    return rectangle;
+}
+
+void DrawTextButton(const TextButton *button)
+{
+    Rectangle rectangle = GetTextButtonRectangle(button);
+    DrawRectangleRec(rectangle, button->background_color);
+    DrawTextCenter(button->text, button->center, button->font_size,
+                   DEFAULT_LETTER_SPACING, button->text_color);
+}
+
+void DrawTextureButton(const TextureButton *button)
+{
+    Vector2 offset = {button->texture.width, button->texture.height};
+    offset = Vector2Scale(offset, 0.5f * button->scale);
+    Vector2 topleft = button->center;
+    topleft = Vector2Subtract(topleft, offset);
+    DrawTextureEx(button->texture, topleft, 0.0f, button->scale, WHITE);
+}
+
+void DrawButton(const Button *button)
+{
+    switch (button->content_type) {
+    case TEXT:
+        DrawTextButton(&button->content.text);
+        break;
+    case TEXTURE:
+        DrawTextureButton(&button->content.texture);
+        break;
+    default:
+        assert(!"Invalid button ContentType");
+        break;
+    }
+
+#ifdef DRAW_HITBOX
+    DrawRectangleLinesEx(GetButtonRectangle(button), 1.0f, RED);
+#endif /* ifdef DRAW_HITBOX */
+}
+
 bool RectangleCheckPressed(Rectangle rectangle)
 {
     return IsMouseButtonPressed(MOUSE_LEFT_BUTTON) &&
@@ -150,6 +265,13 @@ Vector2 RectangleGetCenter(Rectangle rectangle)
 {
     return (Vector2){rectangle.x + rectangle.width / 2.0f,
                      rectangle.y + rectangle.height / 2.0f};
+}
+
+bool ButtonCheckPressed(const Button *button)
+{
+    Rectangle rectangle = GetButtonRectangle(button);
+    bool pressed = RectangleCheckPressed(rectangle);
+    return pressed;
 }
 
 Rectangle ShipGetHitbox(const Ship *ship)
@@ -351,54 +473,94 @@ void DrawWinButtons(const Gui *gui)
                    DEFAULT_LETTER_SPACING, RED);
 }
 
-void GameInit(Game *game)
+void GameReset(Game *game)
 {
     game->ship1 =
-        (Ship){.position = {0, 0},
+        (Ship){.position = {SCREEN_HALF.x * 0.5f - SHIP_WIDTH / 2.0f,
+                            SCREEN_HALF.y * 0.5f - SHIP_HEIGHT / 2.0f},
                .velocity = {0, 0},
                .key_map = {KEY_W, KEY_S, KEY_A, KEY_D, KEY_SPACE},
                .left_side = true,
                .bullet_count = 0,
                .texture = ShipLoadTexture(LEFT_SHIP_TEXTURE_FILEPATH, 90),
                .health = SHIP_INITIAL_HEALTH};
+
     game->ship2 =
-        (Ship){.position = {SCREEN_WIDTH * 0.75f, 0},
+        (Ship){.position = {SCREEN_HALF.x * 1.5f - SHIP_WIDTH / 2.0f,
+                            SCREEN_HALF.y * 1.5f - SHIP_HEIGHT / 2.0f},
                .velocity = {0, 0},
                .key_map = {KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_COMMA},
                .left_side = false,
                .bullet_count = 0,
                .texture = ShipLoadTexture(RIGHT_SHIP_TEXTURE_FILEPATH, -90),
                .health = SHIP_INITIAL_HEALTH};
+
     size_t bullet_pool_bytes = MAX_POOL_BULLETS * sizeof(game->bullet_pool[0]);
     memset(game->bullet_pool, 0, bullet_pool_bytes);
+
+    SeekMusicStream(game->background_music, 0.0f);
     game->winner = NONE;
+}
+
+void GameLoadSounds(Game *game)
+{
     game->shoot_sfx = LoadSound(SHOOT_SFX_FILEPATH);
     game->hit_sfx = LoadSound(HIT_SFX_FILEPATH);
     game->win_sfx = LoadSound(WIN_SFX_FILEPATH);
     SetSoundVolume(game->win_sfx, 5.0f);
     game->background_music = LoadMusicStream(BACKGROUND_MUSIC_FILEPATH);
     game->background_music.looping = true;
+}
+
+void GameInitGui(Game *game)
+{
+    Texture2D pause_icon = LoadTexture(PAUSE_ICON_FILEPATH);
     game->gui = (Gui){
         .main_menu_gui = {.play_button = CreateRectangleFromCenter(
                               SCREEN_HALF.x, SCREEN_HALF.y + 20.0f, 150.0f,
                               30.0f)},
+        .playing_gui = {.pause_button = {.content_type = TEXTURE,
+                                         .content = {.texture = {{SCREEN_HALF.x,
+                                                                  19.0f},
+                                                                 {0.0f, 0.0f},
+                                                                 0.5f,
+                                                                 pause_icon}}}},
+        .pause_gui = {.resume_button = {{SCREEN_HALF.x, SCREEN_HALF.y + 20.0f},
+                                        24.0f,
+                                        {10.0f, 4.0f},
+                                        WHITE,
+                                        BLACK,
+                                        "RESUME"},
+                      .main_menu_button = {{SCREEN_HALF.x,
+                                            SCREEN_HALF.y + 70.0f},
+                                           24.0f,
+                                           {10.0f, 4.0f},
+                                           WHITE,
+                                           BLACK,
+                                           "MAIN MENU"}},
         .win_gui = {.play_again_button = CreateRectangleFromCenter(
                         SCREEN_HALF.x, SCREEN_HALF.y + 20.0f, 150.0f, 30.0f),
                     .exit_button = CreateRectangleFromCenter(
                         SCREEN_HALF.x, SCREEN_HALF.y + 70.0f, 100.0f, 30.0f)}};
 }
 
+void GameInit(Game *game)
+{
+    GameLoadSounds(game);
+    GameReset(game);
+    GameInitGui(game);
+}
+
 void GameDeinit(Game *game)
 {
     UnloadTexture(game->ship1.texture);
     UnloadTexture(game->ship2.texture);
+    UnloadTexture(game->gui.playing_gui.pause_button.content.texture.texture);
     UnloadSound(game->shoot_sfx);
     UnloadSound(game->hit_sfx);
     UnloadSound(game->win_sfx);
     UnloadMusicStream(game->background_music);
 }
-
-void MainMenuStateInit(Game *game) {}
 
 GameState *MainMenuStateUpdate(Game *game)
 {
@@ -422,32 +584,7 @@ void MainMenuStateDraw(const Game *game)
                    24.0f, DEFAULT_LETTER_SPACING, RED);
 }
 
-void PlayingStateInit(Game *game)
-{
-    SeekMusicStream(game->background_music, 0.0f);
-    PlayMusicStream(game->background_music);
-    game->ship1 =
-        (Ship){.position = {SCREEN_HALF.x * 0.5f - SHIP_WIDTH / 2.0f,
-                            SCREEN_HALF.y * 0.5f - SHIP_HEIGHT / 2.0f},
-               .velocity = {0, 0},
-               .key_map = {KEY_W, KEY_S, KEY_A, KEY_D, KEY_SPACE},
-               .left_side = true,
-               .bullet_count = 0,
-               .texture = ShipLoadTexture(LEFT_SHIP_TEXTURE_FILEPATH, 90),
-               .health = SHIP_INITIAL_HEALTH};
-    game->ship2 =
-        (Ship){.position = {SCREEN_HALF.x * 1.5f - SHIP_WIDTH / 2.0f,
-                            SCREEN_HALF.y * 1.5f - SHIP_HEIGHT / 2.0f},
-               .velocity = {0, 0},
-               .key_map = {KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_COMMA},
-               .left_side = false,
-               .bullet_count = 0,
-               .texture = ShipLoadTexture(RIGHT_SHIP_TEXTURE_FILEPATH, -90),
-               .health = SHIP_INITIAL_HEALTH};
-    size_t bullet_pool_bytes = MAX_POOL_BULLETS * sizeof(game->bullet_pool[0]);
-    memset(game->bullet_pool, 0, bullet_pool_bytes);
-    game->winner = NONE;
-}
+void PlayingStateInit(Game *game) { PlayMusicStream(game->background_music); }
 
 void PlayingStateDraw(const Game *game)
 {
@@ -458,9 +595,7 @@ void PlayingStateDraw(const Game *game)
     ShipDraw(&game->ship2);
     ShipDrawHealth(&game->ship1);
     ShipDrawHealth(&game->ship2);
-    if (NONE != game->winner) {
-        DrawWinDialog(game->winner);
-    }
+    DrawButton(&game->gui.playing_gui.pause_button);
 }
 
 GameState *PlayingStateUpdate(Game *game)
@@ -476,6 +611,10 @@ GameState *PlayingStateUpdate(Game *game)
 
     if (WindowShouldClose()) {
         return NULL;
+    }
+    if (IsKeyPressed(KEY_ESCAPE) ||
+        ButtonCheckPressed(&game->gui.playing_gui.pause_button)) {
+        return &pause_state;
     }
 
     BulletPoolUpdateMovement(*bullet_pool);
@@ -521,7 +660,44 @@ GameState *PlayingStateUpdate(Game *game)
     return &playing_state;
 }
 
-void WinStateInit(Game *game) {}
+GameState *PauseStateUpdate(Game *game)
+{
+    if (WindowShouldClose()) {
+        return NULL;
+    }
+    if (IsKeyPressed(KEY_ESCAPE)) {
+        return &playing_state;
+    }
+    if (RectangleCheckPressed(
+            GetTextButtonRectangle(&game->gui.pause_gui.resume_button))) {
+        return &playing_state;
+    }
+    if (RectangleCheckPressed(
+            GetTextButtonRectangle(&game->gui.pause_gui.main_menu_button))) {
+        GameReset(game);
+        return &main_menu_state;
+    }
+    return &pause_state;
+}
+
+void DimScreen(Color color)
+{
+    rlSetBlendFactorsSeparate(0x0302, 0x0303, 1, 0x0303, 0x8006, 0x8006);
+    BeginBlendMode(BLEND_CUSTOM_SEPARATE);
+    DrawRectangle(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, color);
+    EndBlendMode();
+}
+
+void PauseStateDraw(const Game *game)
+{
+    PlayingStateDraw(game);
+
+    DimScreen(PAUSE_DIM_COLOR);
+    DrawTextCenter("PAUSED", (Vector2){SCREEN_HALF.x, SCREEN_HALF.y - 50.0f},
+                   64.0f, DEFAULT_LETTER_SPACING, WHITE);
+    DrawTextButton(&game->gui.pause_gui.resume_button);
+    DrawTextButton(&game->gui.pause_gui.main_menu_button);
+}
 
 GameState *WinStateUpdate(Game *game)
 {
@@ -529,6 +705,7 @@ GameState *WinStateUpdate(Game *game)
         return NULL;
     }
     if (RectangleCheckPressed(game->gui.win_gui.play_again_button)) {
+        GameReset(game);
         return &playing_state;
     }
     if (RectangleCheckPressed(game->gui.win_gui.exit_button)) {
@@ -544,15 +721,23 @@ void WinStateDraw(const Game *game)
     DrawWinButtons(&game->gui);
 }
 
+void EmptyStateInit(Game *game) {}
+
 void GameStatesInit(void)
 {
-    main_menu_state = (GameState){.Init = &MainMenuStateInit,
+    main_menu_state = (GameState){.Init = &EmptyStateInit,
                                   .Update = &MainMenuStateUpdate,
                                   .Draw = &MainMenuStateDraw};
+
     playing_state = (GameState){.Init = &PlayingStateInit,
                                 .Update = &PlayingStateUpdate,
                                 .Draw = &PlayingStateDraw};
-    win_state = (GameState){.Init = &WinStateInit,
+
+    pause_state = (GameState){.Init = &EmptyStateInit,
+                              .Update = &PauseStateUpdate,
+                              .Draw = &PauseStateDraw};
+
+    win_state = (GameState){.Init = &EmptyStateInit,
                             .Update = &WinStateUpdate,
                             .Draw = &WinStateDraw};
 }
@@ -576,6 +761,7 @@ int main(void)
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Space War");
     SetTargetFPS(60);
     InitAudioDevice();
+    SetExitKey(KEY_NULL);
 
     screen = LoadRenderTexture(SCREEN_WIDTH, SCREEN_HEIGHT);
     Game game = {0};
