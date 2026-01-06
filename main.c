@@ -16,6 +16,7 @@
 #define SHOOT_SFX_FILEPATH "assets/shoot-sfx.wav"
 #define HIT_SFX_FILEPATH "assets/hit-sfx.wav"
 #define WIN_SFX_FILEPATH "assets/win-sfx.wav"
+#define PAUSE_SFX_FILEPATH "assets/pause-sfx.wav"
 #define BACKGROUND_MUSIC_FILEPATH "assets/background-music.ogg"
 #define PAUSE_ICON_FILEPATH "assets/pause-icon.png"
 #define WINDOW_ICON_FILEPATH "assets/window-icon.png"
@@ -112,6 +113,7 @@ typedef struct {
     Sound shoot_sfx;
     Sound hit_sfx;
     Sound win_sfx;
+    Sound pause_sfx;
     Music background_music;
 
     Gui gui;
@@ -503,11 +505,13 @@ void GameLoadSounds(Game *game)
     game->shoot_sfx = LoadSound(SHOOT_SFX_FILEPATH);
     game->hit_sfx = LoadSound(HIT_SFX_FILEPATH);
     game->win_sfx = LoadSound(WIN_SFX_FILEPATH);
+    game->pause_sfx = LoadSound(PAUSE_SFX_FILEPATH);
     game->background_music = LoadMusicStream(BACKGROUND_MUSIC_FILEPATH);
 
     SetSoundVolume(game->shoot_sfx, 0.5f);
     SetSoundVolume(game->hit_sfx, 0.5f);
     SetSoundVolume(game->win_sfx, 0.3f);
+    SetSoundVolume(game->pause_sfx, 0.3f);
     SetMusicVolume(game->background_music, 0.3f);
 
     game->background_music.looping = true;
@@ -669,6 +673,8 @@ GameState *PlayingStateUpdate(Game *game)
     return &playing_state;
 }
 
+void PauseStateInit(Game *game) { PlaySound(game->pause_sfx); }
+
 GameState *PauseStateUpdate(Game *game)
 {
     if (WindowShouldClose()) {
@@ -744,7 +750,7 @@ void GameStatesInit(void)
                                 .Update = &PlayingStateUpdate,
                                 .Draw = &PlayingStateDraw};
 
-    pause_state = (GameState){.Init = &EmptyStateInit,
+    pause_state = (GameState){.Init = &PauseStateInit,
                               .Update = &PauseStateUpdate,
                               .Draw = &PauseStateDraw};
 
