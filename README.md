@@ -3,6 +3,14 @@
 
 **SPACEWAR is a local 2 player spaceship shooting game!**
 
+SPACEWAR is written in C with cool game library: [Raylib](https://www.raylib.com/).
+
+## 🖼️  Images
+
+![SPACEWAR main menu screen](docs/main-menu.png)
+![SPACEWAR in-game](docs/in-game.png)
+![SPACEWAR win dialog](docs/win.png)
+
 ## 👷🏻 Building
 
 Raylib files in this project is for Windows. So, if you building in Unix,
@@ -32,4 +40,4 @@ gcc main.c -o spacewar -O3 -lraylib
 
 - [x] Add window icon
 - [x] Add main menu exit button
-- [ ] Add images section in README.md
+- [x] Add images section in README.md
