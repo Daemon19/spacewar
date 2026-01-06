@@ -576,7 +576,8 @@ void GameDeinit(Game *game)
 
 GameState *MainMenuStateUpdate(Game *game)
 {
-    if (WindowShouldClose()) {
+    if (WindowShouldClose() ||
+        ButtonCheckPressed(&game->gui.main_menu_gui.exit_button)) {
         return NULL;
     }
     if (RectangleCheckPressed(game->gui.main_menu_gui.play_button)) {
