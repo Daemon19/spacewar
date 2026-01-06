@@ -30,6 +30,6 @@ gcc main.c -o spacewar -O3 -lraylib
 
 ## 📝 Todo
 
-- [ ] Add window icon
-- [ ] Add main menu exit button
+- [x] Add window icon
+- [x] Add main menu exit button
 - [ ] Add images section in README.md

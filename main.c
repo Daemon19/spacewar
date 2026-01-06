@@ -79,6 +79,7 @@ typedef struct {
 
 typedef struct {
     Rectangle play_button;
+    Button exit_button;
 } MainMenuGui;
 
 typedef struct {
@@ -511,9 +512,16 @@ void GameInitGui(Game *game)
 {
     Texture2D pause_icon = LoadTexture(PAUSE_ICON_FILEPATH);
     game->gui = (Gui){
-        .main_menu_gui = {.play_button = CreateRectangleFromCenter(
-                              SCREEN_HALF.x, SCREEN_HALF.y + 20.0f, 150.0f,
-                              30.0f)},
+        .main_menu_gui =
+            {.play_button = CreateRectangleFromCenter(
+                 SCREEN_HALF.x, SCREEN_HALF.y + 20.0f, 150.0f, 30.0f),
+             .exit_button = {TEXT,
+                             {.text = {{SCREEN_HALF.x, SCREEN_HALF.y + 70.0f},
+                                       24.0f,
+                                       {30.0f, 2.0f},
+                                       WHITE,
+                                       BLACK,
+                                       "EXIT"}}}},
         .playing_gui = {.pause_button = {.content_type = TEXTURE,
                                          .content = {.texture = {{SCREEN_HALF.x,
                                                                   19.0f},
@@ -577,6 +585,7 @@ void MainMenuStateDraw(const Game *game)
     DrawTextCenter("PLAY",
                    RectangleGetCenter(game->gui.main_menu_gui.play_button),
                    24.0f, DEFAULT_LETTER_SPACING, RED);
+    DrawButton(&game->gui.main_menu_gui.exit_button);
 }
 
 void PlayingStateInit(Game *game) { PlayMusicStream(game->background_music); }
