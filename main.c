@@ -1,9 +1,3 @@
-// TODO: Add background music & sfx ✅
-// TODO: Add main menu ✅
-// TODO: Add pause menu ✅
-// TODO: Add win menu ✅
-// TODO: Move bullets to Ship struct?
-
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,6 +18,7 @@
 #define WIN_SFX_FILEPATH "assets/win-sfx.wav"
 #define BACKGROUND_MUSIC_FILEPATH "assets/background-music.ogg"
 #define PAUSE_ICON_FILEPATH "assets/pause-icon.png"
+#define WINDOW_ICON_FILEPATH "assets/window-icon.png"
 
 typedef struct {
     int move_up;
@@ -762,6 +757,10 @@ int main(void)
     SetTargetFPS(60);
     InitAudioDevice();
     SetExitKey(KEY_NULL);
+
+    Image window_icon = LoadImage(WINDOW_ICON_FILEPATH);
+    SetWindowIcon(window_icon);
+    UnloadImage(window_icon);
 
     screen = LoadRenderTexture(SCREEN_WIDTH, SCREEN_HEIGHT);
     Game game = {0};
