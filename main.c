@@ -125,12 +125,12 @@ typedef struct GameState {
     void (*Draw)(const Game *game);
 } GameState;
 
-const int WINDOW_WIDTH = 960;
-const int WINDOW_HEIGHT = 540;
-const int SCREEN_DIVIDER = 2;
-const int SCREEN_WIDTH = WINDOW_WIDTH / SCREEN_DIVIDER;
-const int SCREEN_HEIGHT = WINDOW_HEIGHT / SCREEN_DIVIDER;
+const int SCREEN_WIDTH = 480;
+const int SCREEN_HEIGHT = 270;
 const Vector2 SCREEN_HALF = {SCREEN_WIDTH / 2.0f, SCREEN_HEIGHT / 2.0f};
+const int INITIAL_SCREEN_SCALE = 2;
+const int INITIAL_WINDOW_WIDTH = SCREEN_WIDTH * INITIAL_SCREEN_SCALE;
+const int INITIAL_WINDOW_HEIGHT = SCREEN_HEIGHT * INITIAL_SCREEN_SCALE;
 
 const int SHIP_WIDTH = 24;
 const int SHIP_HEIGHT = 26;
@@ -149,7 +149,6 @@ const float WIN_FONT_SIZE = 64.0f;
 const float DEFAULT_LETTER_SPACING = 1.0f;
 const Color PAUSE_DIM_COLOR = (Color){0, 0, 0, 170};
 
-RenderTexture2D screen;
 GameState main_menu_state;
 GameState playing_state;
 GameState pause_state;
@@ -157,7 +156,9 @@ GameState win_state;
 
 Vector2 GetMousePositionOnScreen(void)
 {
-    return Vector2Scale(GetMousePosition(), 1.0f / SCREEN_DIVIDER);
+    Vector2 mouse = GetMousePosition();
+    return (Vector2){Remap(mouse.x, 0, GetScreenWidth(), 0, SCREEN_WIDTH),
+                     Remap(mouse.y, 0, GetScreenHeight(), 0, SCREEN_HEIGHT)};
 }
 
 Rectangle CreateRectangleFromCenter(float centerx, float centery, float width,
@@ -700,7 +701,7 @@ void DimScreen(Color color)
 {
     rlSetBlendFactorsSeparate(0x0302, 0x0303, 1, 0x0303, 0x8006, 0x8006);
     BeginBlendMode(BLEND_CUSTOM_SEPARATE);
-    DrawRectangle(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, color);
+    DrawRectangle(0, 0, INITIAL_WINDOW_WIDTH, INITIAL_WINDOW_HEIGHT, color);
     EndBlendMode();
 }
 
@@ -760,15 +761,31 @@ void GameStatesInit(void)
                             .Draw = &WinStateDraw};
 }
 
-void DrawScreenToWindow(void)
+// Screen's draw destination is the biggest centered rectangle following screen
+// size ratio
+Rectangle CreateScreenDrawDestination(void)
+{
+    float width = GetScreenWidth();
+    float height = GetScreenHeight();
+    if (height > width * SCREEN_HEIGHT / SCREEN_WIDTH) {
+        height = width * SCREEN_HEIGHT / SCREEN_WIDTH;
+    } else {
+        width = height * SCREEN_WIDTH / SCREEN_HEIGHT;
+    }
+    Rectangle result = CreateRectangleFromCenter(
+        GetScreenWidth() / 2.0f, GetScreenHeight() / 2.0f, width, height);
+    return result;
+}
+
+void DrawScreenToWindow(RenderTexture2D screen)
 {
     BeginDrawing();
-    ClearBackground(RAYWHITE);
-    DrawTexturePro(screen.texture,
-                   (Rectangle){0, 0, (float)screen.texture.width,
-                               (float)-screen.texture.height},
-                   (Rectangle){0, 0, (float)WINDOW_WIDTH, (float)WINDOW_HEIGHT},
-                   (Vector2){0, 0}, 0.0f, WHITE);
+    ClearBackground(BLACK);
+    Rectangle source = {0, 0, (float)screen.texture.width,
+                        (float)-screen.texture.height};
+    Rectangle destination = CreateScreenDrawDestination();
+    DrawTexturePro(screen.texture, source, destination, (Vector2){0, 0}, 0.0f,
+                   WHITE);
     EndDrawing();
 }
 
@@ -776,7 +793,8 @@ int main(void)
 {
     SetTraceLogLevel(LOG_WARNING);
 
-    InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Space War");
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
+    InitWindow(INITIAL_WINDOW_WIDTH, INITIAL_WINDOW_HEIGHT, "Space War");
     SetTargetFPS(60);
     InitAudioDevice();
     SetExitKey(KEY_NULL);
@@ -785,7 +803,7 @@ int main(void)
     SetWindowIcon(window_icon);
     UnloadImage(window_icon);
 
-    screen = LoadRenderTexture(SCREEN_WIDTH, SCREEN_HEIGHT);
+    RenderTexture2D screen = LoadRenderTexture(SCREEN_WIDTH, SCREEN_HEIGHT);
     Game game = {0};
     GameInit(&game);
 
@@ -794,6 +812,17 @@ int main(void)
     GameState *previous_state = NULL;
 
     while (NULL != current_state) {
+        if (IsKeyPressed(KEY_F11)) {
+            int new_width = INITIAL_WINDOW_WIDTH;
+            int new_height = INITIAL_WINDOW_HEIGHT;
+            if (!IsWindowFullscreen()) {
+                new_width = GetMonitorWidth(GetCurrentMonitor());
+                new_height = GetMonitorHeight(GetCurrentMonitor());
+            }
+            SetWindowSize(new_width, new_height);
+            ToggleFullscreen();
+        }
+
         // Run game state initialization function on state change
         if (previous_state != current_state) {
             current_state->Init(&game);
@@ -804,7 +833,7 @@ int main(void)
         current_state->Draw(&game);
         EndTextureMode();
 
-        DrawScreenToWindow();
+        DrawScreenToWindow(screen);
         current_state = current_state->Update(&game);
     }
 

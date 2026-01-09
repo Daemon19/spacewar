@@ -34,10 +34,12 @@ gcc main.c -o spacewar -O3 -lraylib
 - SPACE to **shoot** for left spaceship
 - ARROW KEYS UP/LEFT/DOWN/RIGHT to **move** right spaceship
 - COMMA to **shoot** for right spaceship
-- ESC To **pause** game
+- ESC to **pause** game
+- F11 to toggle fullscreen mode
 
 ## 📝 Todo
 
-- [x] Add window icon
-- [x] Add main menu exit button
-- [x] Add images section in README.md
+- [x] Make window resizable
+- [ ] Make game update follows delta time
+- [ ] Add button click sound effect
+- [ ] Add button on hover effect
