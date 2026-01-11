@@ -481,10 +481,10 @@ void DrawWinButtons(const Gui *gui)
     DrawRectangleRec(gui->win_gui.play_again_button, WHITE);
     DrawTextCenter("PLAY AGAIN",
                    RectangleGetCenter(gui->win_gui.play_again_button), 24.0f,
-                   DEFAULT_LETTER_SPACING, RED);
+                   DEFAULT_LETTER_SPACING, BLACK);
     DrawRectangleRec(gui->win_gui.exit_button, WHITE);
     DrawTextCenter("EXIT", RectangleGetCenter(gui->win_gui.exit_button), 24.0f,
-                   DEFAULT_LETTER_SPACING, RED);
+                   DEFAULT_LETTER_SPACING, BLACK);
 }
 
 void GameReset(Game *game)
