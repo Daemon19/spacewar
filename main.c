@@ -789,6 +789,18 @@ void DrawScreenToWindow(RenderTexture2D screen)
     EndDrawing();
 }
 
+void SetFullscreen(bool fullscreen)
+{
+    int new_width = INITIAL_WINDOW_WIDTH;
+    int new_height = INITIAL_WINDOW_HEIGHT;
+    if (fullscreen) {
+        new_width = GetMonitorWidth(GetCurrentMonitor());
+        new_height = GetMonitorHeight(GetCurrentMonitor());
+    }
+    SetWindowSize(new_width, new_height);
+    ToggleFullscreen();
+}
+
 int main(void)
 {
     SetTraceLogLevel(LOG_WARNING);
@@ -813,14 +825,7 @@ int main(void)
 
     while (NULL != current_state) {
         if (IsKeyPressed(KEY_F11)) {
-            int new_width = INITIAL_WINDOW_WIDTH;
-            int new_height = INITIAL_WINDOW_HEIGHT;
-            if (!IsWindowFullscreen()) {
-                new_width = GetMonitorWidth(GetCurrentMonitor());
-                new_height = GetMonitorHeight(GetCurrentMonitor());
-            }
-            SetWindowSize(new_width, new_height);
-            ToggleFullscreen();
+            SetFullscreen(!IsWindowFullscreen());
         }
 
         // Run game state initialization function on state change
