@@ -740,7 +740,7 @@ void WinStateDraw(const Game *game)
     DrawWinButtons(&game->gui);
 }
 
-void EmptyStateInit(Game *game) {}
+void EmptyStateInit(Game *game) { (void)game; }
 
 void GameStatesInit(void)
 {
