@@ -1,11 +1,10 @@
-
 # 🚀 SPACEWAR
 
 **SPACEWAR is a local 2 player spaceship shooting game!**
 
 SPACEWAR is written in C with cool game library: [Raylib](https://www.raylib.com/).
 
-## 🖼️  Images
+## 🖼️ Images
 
 ![SPACEWAR main menu screen](docs/main-menu.png)
 ![SPACEWAR in-game](docs/in-game.png)
@@ -40,6 +39,6 @@ gcc main.c -o spacewar -O3 -lraylib
 ## 📝 Todo
 
 - [x] Make window resizable
-- [ ] Make game update follows delta time
+- [x] Make game update follows delta time
 - [ ] Add button click sound effect
 - [ ] Add button on hover effect

@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,6 +42,7 @@ typedef struct {
 
 typedef struct {
     Vector2 position;
+    Vector2 last_position;
     bool active;
     Ship *owner;
 } Bullet;
@@ -121,7 +123,7 @@ typedef struct {
 
 typedef struct GameState {
     void (*Init)(Game *game);
-    struct GameState *(*Update)(Game *game);
+    struct GameState *(*Update)(Game *game, float deltatime);
     void (*Draw)(const Game *game);
 } GameState;
 
@@ -134,7 +136,7 @@ const int INITIAL_WINDOW_HEIGHT = SCREEN_HEIGHT * INITIAL_SCREEN_SCALE;
 
 const int SHIP_WIDTH = 24;
 const int SHIP_HEIGHT = 26;
-const float SHIP_VELOCITY = 3.0f;
+const float SHIP_VELOCITY = 180.0f;
 const int SHIP_HITBOX_WIDTH = 14;
 const int SHIP_HITBOX_HEIGHT = 20;
 const int SHIP_INITIAL_HEALTH = 3;
@@ -143,7 +145,7 @@ const int SHIP_HEALTH_Y_OFF = 10;
 
 const int BULLET_WIDTH = 12;
 const int BULLET_HEIGHT = 1;
-const float BULLET_VELOCITY = 10.0f;
+const float BULLET_VELOCITY = 600.0f;
 
 const float WIN_FONT_SIZE = 64.0f;
 const float DEFAULT_LETTER_SPACING = 1.0f;
@@ -298,6 +300,7 @@ void BulletPoolAddBullet(BulletPool bullet_pool, Ship *owner)
                                             : owner->position.x - BULLET_WIDTH;
     bullet->position.y =
         owner->position.y + SHIP_HEIGHT / 2.0f - BULLET_HEIGHT / 2.0f;
+    bullet->last_position = bullet->position;
     bullet->owner = owner;
 }
 
@@ -307,7 +310,7 @@ void BulletDeactivate(Bullet *bullet)
     bullet->owner->bullet_count--;
 }
 
-void BulletPoolUpdateMovement(BulletPool bullet_pool)
+void BulletPoolUpdateMovement(BulletPool bullet_pool, float deltatime)
 {
     for (int i = 0; i < MAX_POOL_BULLETS; i++) {
         Bullet *bullet = &bullet_pool[i];
@@ -315,8 +318,9 @@ void BulletPoolUpdateMovement(BulletPool bullet_pool)
             continue;
         }
 
+        bullet->last_position = bullet->position;
         bullet->position.x +=
-            BULLET_VELOCITY * (bullet->owner->left_side ? 1 : -1);
+            BULLET_VELOCITY * deltatime * (bullet->owner->left_side ? 1 : -1);
 
         if (bullet->owner->left_side && bullet->position.x > SCREEN_WIDTH) {
             BulletDeactivate(bullet);
@@ -340,6 +344,18 @@ void BulletPoolDraw(const BulletPool bullet_pool)
     }
 }
 
+// Returns bullet's collision rectangle based on its movement
+Rectangle BulletGetCollisionRectangle(const Bullet *bullet)
+{
+    float x = fmin(bullet->position.x, bullet->last_position.x);
+    float dx = fabs(bullet->position.x - bullet->last_position.x);
+    // Bullet only move horizontally
+    float y = bullet->position.y;
+    float dy = BULLET_HEIGHT;
+    Rectangle collision_rectangle = {x, y, dx, dy};
+    return collision_rectangle;
+}
+
 int BulletPoolHandleCollisions(BulletPool bullet_pool, const Ship *shooter,
                                const Ship *target)
 {
@@ -350,9 +366,8 @@ int BulletPoolHandleCollisions(BulletPool bullet_pool, const Ship *shooter,
             continue;
         }
 
-        Rectangle bullet_rectangle = {bullet->position.x, bullet->position.y,
-                                      BULLET_WIDTH, BULLET_HEIGHT};
-        if (!CheckCollisionRecs(bullet_rectangle, ShipGetHitbox(target))) {
+        if (!CheckCollisionRecs(BulletGetCollisionRectangle(bullet),
+                                ShipGetHitbox(target))) {
             continue;
         }
 
@@ -362,7 +377,7 @@ int BulletPoolHandleCollisions(BulletPool bullet_pool, const Ship *shooter,
     return collision_count;
 }
 
-void ShipHandleMovement(Ship *ship)
+void ShipHandleMovement(Ship *ship, float deltatime)
 {
     if (IsKeyDown(ship->key_map.move_up)) {
         ship->velocity.y = -1;
@@ -381,7 +396,7 @@ void ShipHandleMovement(Ship *ship)
     }
 
     ship->velocity = Vector2Normalize(ship->velocity);
-    ship->velocity = Vector2Scale(ship->velocity, SHIP_VELOCITY);
+    ship->velocity = Vector2Scale(ship->velocity, SHIP_VELOCITY * deltatime);
 
     ship->position.x += ship->velocity.x;
     ship->position.y += ship->velocity.y;
@@ -575,8 +590,9 @@ void GameDeinit(Game *game)
     UnloadMusicStream(game->background_music);
 }
 
-GameState *MainMenuStateUpdate(Game *game)
+GameState *MainMenuStateUpdate(Game *game, float deltatime)
 {
+    (void)deltatime;
     if (WindowShouldClose() ||
         ButtonCheckPressed(&game->gui.main_menu_gui.exit_button)) {
         return NULL;
@@ -613,7 +629,7 @@ void PlayingStateDraw(const Game *game)
     DrawButton(&game->gui.playing_gui.pause_button);
 }
 
-GameState *PlayingStateUpdate(Game *game)
+GameState *PlayingStateUpdate(Game *game, float deltatime)
 {
     // Unpacking Game struct
     Ship *ship1 = &game->ship1;
@@ -632,13 +648,13 @@ GameState *PlayingStateUpdate(Game *game)
         return &pause_state;
     }
 
-    BulletPoolUpdateMovement(*bullet_pool);
+    BulletPoolUpdateMovement(*bullet_pool, deltatime);
 
-    ShipHandleMovement(ship1);
+    ShipHandleMovement(ship1, deltatime);
     if (ShipHandleShoot(ship1, *bullet_pool)) {
         PlaySound(*shoot_sfx);
     }
-    ShipHandleMovement(ship2);
+    ShipHandleMovement(ship2, deltatime);
     if (ShipHandleShoot(ship2, *bullet_pool)) {
         PlaySound(*shoot_sfx);
     }
@@ -677,8 +693,9 @@ GameState *PlayingStateUpdate(Game *game)
 
 void PauseStateInit(Game *game) { PlaySound(game->pause_sfx); }
 
-GameState *PauseStateUpdate(Game *game)
+GameState *PauseStateUpdate(Game *game, float deltatime)
 {
+    (void)deltatime;
     if (WindowShouldClose()) {
         return NULL;
     }
@@ -718,8 +735,9 @@ void PauseStateDraw(const Game *game)
 
 void WinStateInit(Game *game) { PlaySound(game->win_sfx); }
 
-GameState *WinStateUpdate(Game *game)
+GameState *WinStateUpdate(Game *game, float deltatime)
 {
+    (void)deltatime;
     if (WindowShouldClose()) {
         return NULL;
     }
@@ -786,6 +804,10 @@ void DrawScreenToWindow(RenderTexture2D screen)
     Rectangle destination = CreateScreenDrawDestination();
     DrawTexturePro(screen.texture, source, destination, (Vector2){0, 0}, 0.0f,
                    WHITE);
+#ifdef DRAW_FPS
+    DrawFPS(0, 0);
+#endif /* ifdef DRAW_FPS */
+
     EndDrawing();
 }
 
@@ -807,7 +829,7 @@ int main(void)
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
     InitWindow(INITIAL_WINDOW_WIDTH, INITIAL_WINDOW_HEIGHT, "Space War");
-    SetTargetFPS(60);
+    SetTargetFPS(GetMonitorRefreshRate(GetCurrentMonitor()));
     InitAudioDevice();
     SetExitKey(KEY_NULL);
 
@@ -839,7 +861,9 @@ int main(void)
         EndTextureMode();
 
         DrawScreenToWindow(screen);
-        current_state = current_state->Update(&game);
+
+        float deltatime = GetFrameTime();
+        current_state = current_state->Update(&game, deltatime);
     }
 
     GameDeinit(&game);
