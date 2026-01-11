@@ -40,5 +40,5 @@ gcc main.c -o spacewar -O3 -lraylib
 
 - [x] Make window resizable
 - [x] Make game update follows delta time
-- [ ] Add button click sound effect
+- [x] Add button click sound effect
 - [ ] Add button on hover effect

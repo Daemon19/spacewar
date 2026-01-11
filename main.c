@@ -18,6 +18,7 @@
 #define HIT_SFX_FILEPATH "assets/hit-sfx.wav"
 #define WIN_SFX_FILEPATH "assets/win-sfx.wav"
 #define PAUSE_SFX_FILEPATH "assets/pause-sfx.wav"
+#define CLICK_SFX_FILEPATH "assets/click-sfx.wav"
 #define BACKGROUND_MUSIC_FILEPATH "assets/background-music.ogg"
 #define PAUSE_ICON_FILEPATH "assets/pause-icon.png"
 #define WINDOW_ICON_FILEPATH "assets/window-icon.png"
@@ -116,6 +117,7 @@ typedef struct {
     Sound hit_sfx;
     Sound win_sfx;
     Sound pause_sfx;
+    Sound click_sfx;
     Music background_music;
 
     Gui gui;
@@ -522,12 +524,14 @@ void GameLoadSounds(Game *game)
     game->hit_sfx = LoadSound(HIT_SFX_FILEPATH);
     game->win_sfx = LoadSound(WIN_SFX_FILEPATH);
     game->pause_sfx = LoadSound(PAUSE_SFX_FILEPATH);
+    game->click_sfx = LoadSound(CLICK_SFX_FILEPATH);
     game->background_music = LoadMusicStream(BACKGROUND_MUSIC_FILEPATH);
 
     SetSoundVolume(game->shoot_sfx, 0.5f);
     SetSoundVolume(game->hit_sfx, 0.5f);
     SetSoundVolume(game->win_sfx, 0.3f);
     SetSoundVolume(game->pause_sfx, 0.3f);
+    SetSoundVolume(game->click_sfx, 0.4f);
     SetMusicVolume(game->background_music, 0.3f);
 
     game->background_music.looping = true;
@@ -709,6 +713,7 @@ GameState *PauseStateUpdate(Game *game, float deltatime)
     if (RectangleCheckPressed(
             GetTextButtonRectangle(&game->gui.pause_gui.main_menu_button))) {
         GameReset(game);
+        PlaySound(game->click_sfx);
         return &main_menu_state;
     }
     return &pause_state;
