@@ -13,7 +13,9 @@
 #define MAX_PLAYER_BULLETS 3
 #define MAX_POOL_BULLETS (MAX_PLAYER_BULLETS * 2)
 #define LEFT_SHIP_TEXTURE_FILEPATH "assets/red-spaceship.png"
+#define LEFT_SHIP_GLOW_TEXTURE_FILEPATH "assets/red-spaceship-glow.png"
 #define RIGHT_SHIP_TEXTURE_FILEPATH "assets/blue-spaceship.png"
+#define RIGHT_SHIP_GLOW_TEXTURE_FILEPATH "assets/blue-spaceship-glow.png"
 #define SHOOT_SFX_FILEPATH "assets/shoot-sfx.wav"
 #define HIT_SFX_FILEPATH "assets/hit-sfx.wav"
 #define WIN_SFX_FILEPATH "assets/win-sfx.wav"
@@ -29,16 +31,21 @@ typedef struct {
     int move_left;
     int move_right;
     int shoot;
+    int dash;
 } ShipKeyMap;
 
 typedef struct {
     Vector2 position;
-    Vector2 velocity;
     ShipKeyMap key_map;
     bool left_side;
     int bullet_count;
     Texture2D texture;
     int health;
+    Texture2D glow_texture;
+    Vector2 last_direction;
+    float dash_time;
+    float dash_cooldown;
+    enum { DEFAULT, DASHING } state;
 } Ship;
 
 typedef struct {
@@ -144,6 +151,9 @@ const int SHIP_HITBOX_HEIGHT = 20;
 const int SHIP_INITIAL_HEALTH = 3;
 const int SHIP_HEALTH_X_OFF = 10;
 const int SHIP_HEALTH_Y_OFF = 10;
+const float SHIP_DASH_DURATION = 0.07f;
+const float SHIP_DASH_SPEED = 1000.0f;
+const float SHIP_DASH_COOLDOWN = 5.0f;
 
 const int BULLET_WIDTH = 12;
 const int BULLET_HEIGHT = 1;
@@ -379,35 +389,75 @@ int BulletPoolHandleCollisions(BulletPool bullet_pool, const Ship *shooter,
     return collision_count;
 }
 
-void ShipHandleMovement(Ship *ship, float deltatime)
+void ShipBoundPosition(Ship *ship)
 {
-    if (IsKeyDown(ship->key_map.move_up)) {
-        ship->velocity.y = -1;
-    } else if (IsKeyDown(ship->key_map.move_down)) {
-        ship->velocity.y = 1;
-    } else {
-        ship->velocity.y = 0;
-    }
-
-    if (IsKeyDown(ship->key_map.move_left)) {
-        ship->velocity.x = -1;
-    } else if (IsKeyDown(ship->key_map.move_right)) {
-        ship->velocity.x = 1;
-    } else {
-        ship->velocity.x = 0;
-    }
-
-    ship->velocity = Vector2Normalize(ship->velocity);
-    ship->velocity = Vector2Scale(ship->velocity, SHIP_VELOCITY * deltatime);
-
-    ship->position.x += ship->velocity.x;
-    ship->position.y += ship->velocity.y;
-
     float left_bound = ship->left_side ? 0 : SCREEN_WIDTH / 2.0f;
     float right_bound =
         (ship->left_side ? SCREEN_WIDTH / 2.0f : SCREEN_WIDTH) - SHIP_WIDTH;
     ship->position.x = Clamp(ship->position.x, left_bound, right_bound);
     ship->position.y = Clamp(ship->position.y, 0, SCREEN_HEIGHT - SHIP_HEIGHT);
+}
+
+void ShipHandleMovement(Ship *ship, float deltatime)
+{
+    int move_y = 0;
+    if (IsKeyDown(ship->key_map.move_up)) {
+        move_y = -1;
+    } else if (IsKeyDown(ship->key_map.move_down)) {
+        move_y = 1;
+    }
+
+    int move_x = 0;
+    if (IsKeyDown(ship->key_map.move_left)) {
+        move_x = -1;
+    } else if (IsKeyDown(ship->key_map.move_right)) {
+        move_x = 1;
+    }
+
+    Vector2 normalized = Vector2Normalize((Vector2){move_x, move_y});
+    Vector2 velocity = Vector2Scale(normalized, SHIP_VELOCITY * deltatime);
+    ship->position = Vector2Add(ship->position, velocity);
+
+    if (move_x || move_y) {
+        ship->last_direction = normalized;
+    }
+
+    ShipBoundPosition(ship);
+
+    if (ship->dash_cooldown > 0) {
+        ship->dash_cooldown -= deltatime;
+    } else if (IsKeyPressed(ship->key_map.dash)) {
+        ship->state = DASHING;
+        ship->dash_time = SHIP_DASH_DURATION;
+    }
+}
+
+void ShipHandleDash(Ship *ship, float deltatime)
+{
+    float elapsed = deltatime;
+    if (deltatime > ship->dash_time) {
+        elapsed = ship->dash_time;
+        ship->state = DEFAULT;
+        ship->dash_cooldown = SHIP_DASH_COOLDOWN;
+    } else {
+        ship->dash_time -= deltatime;
+    }
+
+    Vector2 velocity =
+        Vector2Scale(ship->last_direction, elapsed * SHIP_DASH_SPEED);
+    ship->position = Vector2Add(ship->position, velocity);
+}
+
+void ShipUpdate(Ship *ship, float deltatime)
+{
+    switch (ship->state) {
+    case DEFAULT:
+        ShipHandleMovement(ship, deltatime);
+        break;
+    case DASHING:
+        ShipHandleDash(ship, deltatime);
+        break;
+    }
 }
 
 bool ShipHandleShoot(Ship *ship, BulletPool bullet_pool)
@@ -421,9 +471,24 @@ bool ShipHandleShoot(Ship *ship, BulletPool bullet_pool)
     return shooting;
 }
 
+void ShipDrawGlow(const Ship *ship)
+{
+    Vector2 center = RectangleGetCenter(
+        (Rectangle){ship->position.x, ship->position.y, ship->texture.width,
+                    ship->texture.height});
+    Rectangle rectangle =
+        CreateRectangleFromCenter(center.x, center.y, ship->glow_texture.width,
+                                  ship->glow_texture.height);
+    DrawTexture(ship->glow_texture, roundf(rectangle.x), roundf(rectangle.y),
+                WHITE);
+}
+
 void ShipDraw(const Ship *ship)
 {
     DrawTextureV(ship->texture, ship->position, WHITE);
+    if (ship->dash_cooldown <= 0) {
+        ShipDrawGlow(ship);
+    }
 
 #ifdef DRAW_HITBOX
     DrawRectangleLinesEx(ShipGetHitbox(ship), 1.0f, RED);
@@ -441,14 +506,9 @@ void ShipDrawHealth(const Ship *ship)
     DrawText(health_str, health_x, SHIP_HEALTH_Y_OFF, 24, RAYWHITE);
 }
 
-Texture2D ShipLoadTexture(const char *filename, int rotation_degree)
+Texture2D LoadTextureRotate(const char *filename, int rotation_degree)
 {
     Image image = LoadImage(filename);
-    if (image.data == 0) {
-        TraceLog(LOG_ERROR, "Failed to load texture: %s", filename);
-        exit(1);
-    }
-
     ImageRotate(&image, rotation_degree);
     Texture2D texture = LoadTextureFromImage(image);
     UnloadImage(image);
@@ -491,25 +551,31 @@ void DrawWinButtons(const Gui *gui)
 
 void GameReset(Game *game)
 {
-    game->ship1 =
-        (Ship){.position = {SCREEN_HALF.x * 0.5f - SHIP_WIDTH / 2.0f,
-                            SCREEN_HALF.y * 0.5f - SHIP_HEIGHT / 2.0f},
-               .velocity = {0, 0},
-               .key_map = {KEY_W, KEY_S, KEY_A, KEY_D, KEY_SPACE},
-               .left_side = true,
-               .bullet_count = 0,
-               .texture = ShipLoadTexture(LEFT_SHIP_TEXTURE_FILEPATH, 90),
-               .health = SHIP_INITIAL_HEALTH};
+    game->ship1 = (Ship){
+        .position = {SCREEN_HALF.x * 0.5f - SHIP_WIDTH / 2.0f,
+                     SCREEN_HALF.y * 0.5f - SHIP_HEIGHT / 2.0f},
+        .key_map = {KEY_W, KEY_S, KEY_A, KEY_D, KEY_X, KEY_C},
+        .left_side = true,
+        .bullet_count = 0,
+        .texture = LoadTextureRotate(LEFT_SHIP_TEXTURE_FILEPATH, 90),
+        .health = SHIP_INITIAL_HEALTH,
+        .glow_texture = LoadTextureRotate(LEFT_SHIP_GLOW_TEXTURE_FILEPATH, 90),
+        .state = DEFAULT,
+        .last_direction = {0.0f, 1.0f}};
 
     game->ship2 =
         (Ship){.position = {SCREEN_HALF.x * 1.5f - SHIP_WIDTH / 2.0f,
                             SCREEN_HALF.y * 1.5f - SHIP_HEIGHT / 2.0f},
-               .velocity = {0, 0},
-               .key_map = {KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_COMMA},
+               .key_map = {KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_COMMA,
+                           KEY_PERIOD},
                .left_side = false,
                .bullet_count = 0,
-               .texture = ShipLoadTexture(RIGHT_SHIP_TEXTURE_FILEPATH, -90),
-               .health = SHIP_INITIAL_HEALTH};
+               .texture = LoadTextureRotate(RIGHT_SHIP_TEXTURE_FILEPATH, -90),
+               .health = SHIP_INITIAL_HEALTH,
+               .glow_texture =
+                   LoadTextureRotate(RIGHT_SHIP_GLOW_TEXTURE_FILEPATH, -90),
+               .state = DEFAULT,
+               .last_direction = {0.0f, -1.0f}};
 
     size_t bullet_pool_bytes = MAX_POOL_BULLETS * sizeof(game->bullet_pool[0]);
     memset(game->bullet_pool, 0, bullet_pool_bytes);
@@ -654,11 +720,12 @@ GameState *PlayingStateUpdate(Game *game, float deltatime)
 
     BulletPoolUpdateMovement(*bullet_pool, deltatime);
 
-    ShipHandleMovement(ship1, deltatime);
+    ShipUpdate(ship1, deltatime);
     if (ShipHandleShoot(ship1, *bullet_pool)) {
         PlaySound(*shoot_sfx);
     }
-    ShipHandleMovement(ship2, deltatime);
+
+    ShipUpdate(ship2, deltatime);
     if (ShipHandleShoot(ship2, *bullet_pool)) {
         PlaySound(*shoot_sfx);
     }
